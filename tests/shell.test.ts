@@ -263,7 +263,7 @@ describe("Shell Integration Tests", () => {
             const errFile = path.join(TEST_DIR, "err.txt");
             runShell(`ls -1 non-existent-file 2> ${errFile}\nexit\n`);
             const content = fs.readFileSync(errFile, "utf-8");
-            expect(content).toContain("ls: non-existent-file: No such file or directory");
+            expect(content).toMatch(/ls: (non-existent-file|cannot access 'non-existent-file'): No such file or directory/);
         });
 
         test("appends stdout to a file with '>>'", () => {
@@ -278,8 +278,8 @@ describe("Shell Integration Tests", () => {
             const errFile = path.join(TEST_DIR, "append_err.txt");
             runShell(`ls -1 nofile 2>> ${errFile}\ncat nonexistent 2>> ${errFile}\nexit\n`);
             const content = fs.readFileSync(errFile, "utf-8");
-            expect(content).toContain("ls: nofile: No such file or directory");
-            expect(content).toContain("cat: nonexistent: No such file or directory");
+            expect(content).toMatch(/ls: (nofile|cannot access 'nofile'): No such file or directory/);
+            expect(content).toMatch(/cat: nonexistent: No such file or directory/);
         });
 
     });
