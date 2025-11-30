@@ -3,7 +3,8 @@
   "description": "Build your own Shell",
   "type": "module",
   "scripts": {
-    "dev": "bun run app/main.ts"
+    "dev": "bun run app/main.ts",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "latest"
