@@ -1,0 +1,11 @@
+{
+  "name": "Build-your-own-Shell",
+  "description": "Build your own Shell",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run app/main.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

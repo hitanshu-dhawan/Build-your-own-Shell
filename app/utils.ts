@@ -1,0 +1,239 @@
+import * as fs from "fs";
+import * as path from "path";
+
+/**
+ * Searches for an executable file in the directories specified by the PATH environment variable.
+ * 
+ * @param command - The name of the command to search for.
+ * @returns The full path to the executable if found, or null if not found.
+ */
+export function findExecutable(command: string): string | null {
+    const envPath = process.env.PATH || "";
+    const paths = envPath.split(path.delimiter);
+
+    for (const dir of paths) {
+        const fullPath = path.join(dir, command);
+        if (fs.existsSync(fullPath)) {
+            try {
+                fs.accessSync(fullPath, fs.constants.X_OK);
+                if (fs.statSync(fullPath).isFile()) {
+                    return fullPath;
+                }
+            } catch (e) { }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Searches for executable files in the PATH that start with the given prefix.
+ * 
+ * @param prefix - The prefix to match.
+ * @returns An array of matching executable names.
+ */
+export function getMatchingExecutables(prefix: string): string[] {
+    const completions = new Set<string>();
+
+    const envPath = process.env.PATH || "";
+    const paths = envPath.split(path.delimiter);
+
+    for (const dir of paths) {
+        try {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+                if (file.startsWith(prefix)) {
+                    const fullPath = path.join(dir, file);
+                    try {
+                        if (fs.statSync(fullPath).isFile()) {
+                            fs.accessSync(fullPath, fs.constants.X_OK);
+                            completions.add(file);
+                        }
+                    } catch (e) { }
+                }
+            }
+        } catch (e) { }
+    }
+
+    return Array.from(completions);
+}
+
+/**
+ * Parses an input string into an array of tokens.
+ * 
+ * Handles quoting and escaping rules:
+ * 
+ * Single Quotes ('):
+ * - Disable all special meaning for characters enclosed within them.
+ * - Example: 'hello    world' -> hello    world
+ * - Example: 'hello''world' -> helloworld
+ * 
+ * Double Quotes ("):
+ * - Most characters are treated literally.
+ * - Backslash (\) escapes " and \.
+ * - Example: "hello    world" -> hello    world
+ * - Example: "hello""world" -> helloworld
+ * - Example: "shell's test" -> shell's test
+ * - Example: "A \" inside double quotes" -> A " inside double quotes
+ * 
+ * Backslash (\) outside quotes:
+ * - Escapes the next character.
+ * - Example: world\ \ \ \ \ \ script -> world      script
+ * 
+ * @param input - The input string to parse.
+ * @returns An array of tokens.
+ */
+export function parseInput(input: string): string[] {
+    const tokens: string[] = [];
+
+    let currentToken = "";
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+
+    for (let i = 0; i < input.length; i++) {
+        const char = input[i];
+
+        if (inSingleQuote) {
+            // Handle single quotes: preserve everything literally until closing quote
+            if (char === "'") {
+                inSingleQuote = false;
+            } else {
+                currentToken += char;
+            }
+        } else if (inDoubleQuote) {
+            // Handle double quotes: preserve whitespace, handle specific escapes
+            if (char === '"') {
+                inDoubleQuote = false;
+            } else if (char === '\\') {
+                const nextChar = input[i + 1];
+                // Only escape " and \ inside double quotes
+                if (nextChar === '"' || nextChar === '\\') {
+                    currentToken += nextChar;
+                    i++;
+                } else {
+                    currentToken += char;
+                }
+            } else {
+                currentToken += char;
+            }
+        } else {
+            // Handle unquoted characters
+            if (char === '\\') {
+                // Backslash escapes the next character
+                const nextChar = input[i + 1];
+                if (nextChar !== undefined) {
+                    currentToken += nextChar;
+                    i++;
+                }
+            } else if (char === "'") {
+                inSingleQuote = true;
+            } else if (char === '"') {
+                inDoubleQuote = true;
+            } else if (char === ' ' || char === '\t') {
+                // Whitespace acts as a delimiter
+                if (currentToken.length > 0) {
+                    tokens.push(currentToken);
+                    currentToken = "";
+                }
+            } else {
+                currentToken += char;
+            }
+        }
+    }
+
+    // Add the last token if exists
+    if (currentToken.length > 0) {
+        tokens.push(currentToken);
+    }
+
+    return tokens;
+}
+
+/**
+ * Interface representing the result of parsing command redirections.
+ */
+export interface RedirectionResult {
+    args: string[];
+    stdout: number;
+    stderr: number;
+    stdoutFile: number | null;
+    stderrFile: number | null;
+    redirectionError: boolean;
+}
+
+/**
+ * Parses arguments to handle output and error redirection.
+ * 
+ * @param args - The arguments to parse.
+ * @returns An object containing cleaned arguments, file descriptors, and any error status.
+ */
+export function parseRedirections(args: string[]): RedirectionResult {
+
+    let stdout: number = process.stdout.fd;
+    let stderr: number = process.stderr.fd;
+    let stdoutFile: number | null = null;
+    let stderrFile: number | null = null;
+
+    let redirectionError = false;
+
+    const filteredArgs: string[] = [];
+
+    for (let i = 0; i < args.length; i++) {
+
+        if (redirectionError)
+            break;
+
+        const arg = args[i];
+
+        if ([">", "1>", "2>", ">>", "1>>", "2>>"].includes(arg)) {
+            if (i + 1 < args.length) {
+                const filePath = args[i + 1];
+
+                const isStderr = arg.startsWith("2");
+                const isAppend = arg.endsWith(">>");
+                const mode = isAppend ? "a" : "w";
+
+                try {
+                    const fd = fs.openSync(filePath, mode);
+                    if (isStderr) {
+                        stderr = fd;
+                        stderrFile = fd;
+                    } else {
+                        stdout = fd;
+                        stdoutFile = fd;
+                    }
+                } catch (e) {
+                    console.log(`${filePath}: No such file or directory`);
+                    redirectionError = true;
+                }
+
+                i++;
+            }
+        } else {
+            filteredArgs.push(arg);
+        }
+    }
+
+    return { args: filteredArgs, stdout, stderr, stdoutFile, stderrFile, redirectionError };
+}
+
+/**
+ * Finds the longest common prefix among an array of strings.
+ * 
+ * @param strings - The array of strings.
+ * @returns The longest common prefix.
+ */
+export function longestCommonPrefix(strings: string[]): string {
+    if (strings.length === 0) return "";
+
+    let prefix = strings[0];
+    for (let i = 1; i < strings.length; i++) {
+        while (strings[i].indexOf(prefix) !== 0) {
+            prefix = prefix.substring(0, prefix.length - 1);
+            if (prefix === "")
+                return "";
+        }
+    }
+
+    return prefix;
+}
