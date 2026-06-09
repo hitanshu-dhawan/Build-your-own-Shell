@@ -362,6 +362,119 @@ describe("Shell Integration Tests", () => {
 
     });
 
+    describe("Programmable Completion", () => {
+
+        test("identifies 'complete' as a builtin", () => {
+            const result = runShell("type complete\nexit\n");
+            expect(result.stdout).toContain("complete is a shell builtin");
+        });
+
+        test("reports a missing completion specification", () => {
+            const result = runShell("complete -p systemctl\nexit\n");
+            expect(result.stdout).toContain("complete: systemctl: no completion specification");
+        });
+
+        test("registers and displays a completion specification", () => {
+            const input = "complete -C /tmp/apple.py git\ncomplete -p git\nexit\n";
+            const result = runShell(input);
+            expect(result.stdout).toContain("complete -C '/tmp/apple.py' git");
+        });
+
+        test("unregisters a completion specification with '-r'", () => {
+            const input = "complete -C /tmp/apple.py git\ncomplete -r git\ncomplete -p git\nexit\n";
+            const result = runShell(input);
+            expect(result.stdout).toContain("complete: git: no completion specification");
+        });
+
+    });
+
+    describe("Background Jobs", () => {
+
+        test("identifies 'jobs' as a builtin", () => {
+            const result = runShell("type jobs\nexit\n");
+            expect(result.stdout).toContain("jobs is a shell builtin");
+        });
+
+        test("lists no jobs when none are running", () => {
+            const result = runShell("jobs\nexit\n");
+            const lines = result.stdout.split("\n").map((l) => l.replace("$ ", "").trim());
+            expect(lines.some((l) => l.includes("Running"))).toBe(false);
+        });
+
+        test("starts a background job and prints its job number and PID", () => {
+            const result = runShell("sleep 100 &\nexit\n");
+            expect(result.stdout).toMatch(/\[1\]\s+\d+/);
+        });
+
+        test("lists a single running background job", () => {
+            const result = runShell("sleep 100 &\njobs\nexit\n");
+            expect(result.stdout).toMatch(/\[1\]\+\s+Running\s+sleep 100 &/);
+        });
+
+        test("lists multiple running background jobs", () => {
+            const result = runShell("sleep 100 &\nsleep 200 &\njobs\nexit\n");
+            expect(result.stdout).toMatch(/\[1\]-\s+Running\s+sleep 100 &/);
+            expect(result.stdout).toMatch(/\[2\]\+\s+Running\s+sleep 200 &/);
+        });
+
+        test("reaps a completed background job before the next prompt", () => {
+            const result = runShell("sleep 0.2 &\nsleep 1\nexit\n");
+            expect(result.stdout).toMatch(/\[1\]\+\s+Done\s+sleep 0.2/);
+        });
+
+    });
+
+    describe("Parameter Expansion", () => {
+
+        test("identifies 'declare' as a builtin", () => {
+            const result = runShell("type declare\nexit\n");
+            expect(result.stdout).toContain("declare is a shell builtin");
+        });
+
+        test("reports a missing variable with '-p'", () => {
+            const result = runShell("declare -p missing_variable_94\nexit\n");
+            expect(result.stdout).toContain("declare: missing_variable_94: not found");
+        });
+
+        test("stores and prints a shell variable", () => {
+            const result = runShell("declare orange=mango\ndeclare -p orange\nexit\n");
+            expect(result.stdout).toContain('declare -- orange="mango"');
+        });
+
+        test("overwrites an existing shell variable", () => {
+            const input = "declare orange=mango\ndeclare orange=banana\ndeclare -p orange\nexit\n";
+            const result = runShell(input);
+            expect(result.stdout).toContain('declare -- orange="banana"');
+        });
+
+        test("rejects invalid identifiers", () => {
+            const result = runShell("declare 8pear=blueberry\nexit\n");
+            expect(result.stdout).toContain("declare: `8pear=blueberry': not a valid identifier");
+        });
+
+        test("accepts identifiers starting with an underscore", () => {
+            const result = runShell("declare _raspberry=apple\ndeclare -p _raspberry\nexit\n");
+            expect(result.stdout).toContain('declare -- _raspberry="apple"');
+        });
+
+        test("expands variables with '$NAME'", () => {
+            const result = runShell("declare fruit=grape\necho $fruit\nexit\n");
+            expect(result.stdout).toContain("grape");
+        });
+
+        test("expands variables with braces '${NAME}'", () => {
+            const result = runShell("declare fruit=banana\necho pineapple_${fruit}_grape\nexit\n");
+            expect(result.stdout).toContain("pineapple_banana_grape");
+        });
+
+        test("expands unset variables to an empty string", () => {
+            const result = runShell("echo ${missing_var_0}_suffix\nexit\n");
+            const lines = result.stdout.split("\n").map((l) => l.replace("$ ", ""));
+            expect(lines).toContain("_suffix");
+        });
+
+    });
+
     // NOTE: Autocompletion and interactive history navigation (arrow keys)
     // are difficult to test in a non-interactive runner and have been omitted.
 
